@@ -1,13 +1,13 @@
-import os, subprocess
+import sys, os, subprocess
 import glob
 import ConfigParser
-import smtplib
 import datetime
+import shlex
 from smtplib import SMTP
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-class bcolors:
+class TextColors:
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
     OKGREEN = '\033[92m'
@@ -15,21 +15,23 @@ class bcolors:
     FAIL = '\033[91m'
     ENDC = '\033[0m'
 
-def ConfigSectionMap(section):
-    dict1 = {}
-    options = Config.options(section)
-    for option in options:
+def ConfigSectionDict(Config, section):
+    optionDict = {}
+    optionNames = Config.options(section)
+    for option in optionNames:
         try:
-            dict1[option] = Config.get(section, option)
-            if dict1[option] == -1:
+            optionDict[option] = Config.get(section, option)
+            if optionDict[option] == -1:
                 DebugPrint("skip: %s" % option)
         except:
             print("exception on %s!" % option)
-            dict1[option] = None
-    return dict1
+            optionDict[option] = None
+    return optionDict
 
-def runtest(script):
-	process = subprocess.Popen(script, stdout=subprocess.PIPE)
+#Runs specific script and returns output
+def RunScript(script):
+	args = shlex.split(script)
+	process = subprocess.Popen(args, stdout=subprocess.PIPE)
 	output = process.communicate()[0].strip()
 	return output
 
@@ -39,12 +41,19 @@ def Check_ok(output, options):
 
 def Check_above(output, options):
 	split = output.strip().split(" ")
-	return int(split[0]) > int(options["threshold"])
+	try:
+		return int(split[0]) > int(options["threshold"])
+	except:
+		return false
 
 def Check_below(output, options):
 	split = output.strip().split(" ")
-	return int(split[0]) < int(options["threshold"])
+	try:
+		return int(split[0]) < int(options["threshold"])
+	except:
+		return false
 
+#Sends email
 def SendEmail(server, port, login, password, source, receivers, text, html):
 	smtp = SMTP()
 	smtp.connect(server, port)
@@ -63,39 +72,60 @@ def SendEmail(server, port, login, password, source, receivers, text, html):
 		smtp.sendmail(source, target.strip(), msg.as_string())
 	smtp.quit()
 
-Config = ConfigParser.ConfigParser()
-report = []
-
-#Executing scripts
-for file in glob.glob("/var/lib/check.d/*.cfg"):
-	Config.read(file)
+#Executes specific config file and appends failed tests reports into errorList
+def ExecuteConfigFile(configFile, errorList):
+	Config = ConfigParser.ConfigParser()
+	Config.read(configFile)
 	for test in Config.sections():
 		script = Config.get(test, "check")
 		type = Config.get(test, "type").lower()
 		if (script!=""):
-			output = runtest(script)
-			options = ConfigSectionMap(test)
-			result = locals()["Check_"+type](output, options)
-			if (result):
-				print(test + ": " + bcolors.OKGREEN + output + bcolors.ENDC)
-			else:
-				print(test + ": " + bcolors.FAIL + output + bcolors.ENDC)
-				report.append({"test" : test, "output" : output, "script" : script})
+			try:
+				output = RunScript(script)
+				options = ConfigSectionDict(Config, test)
+				result = globals()["Check_"+type](output, options)
+				if (result):
+					print(test + ": " + TextColors.OKGREEN + output + TextColors.ENDC)
+				else:
+					print(test + ": " + TextColors.FAIL + output + TextColors.ENDC)
+					errorList.append({"test" : test, "output" : output, "script" : script})
+			except:
+				print "Error executing script " + script + " : " + str(sys.exc_info()[1]) + str(sys.exc_info()[2])
 
-#If we have something to tell about
-if (len(report)>0):
-	print(bcolors.OKBLUE + "Sending e-mail..." + bcolors.ENDC)
-	Config.read("emails.cfg")
+#Executes scripts in /var/lib/check.d/
+def ExecuteConfigs(configPattern):
+	errList = []
+	for file in glob.glob(configPattern):
+		print(file)
+		ExecuteConfigFile(file, errList)
+	return errList
+
+#Transforms failed tests array into
+def FormatReport(report):
 	plaintext = "Failed tests: "
 	htmltext = "Failed tests: "
 	for r in report:
 		plaintext = "%s\n%s(%s) : %s" % (plaintext, r["test"], r["script"], r["output"])
 		htmltext = "%s<BR /><B>%s</b>(%s) : <FONT color=red> %s </font>" % (htmltext, r["test"], r["script"], r["output"])
-	SendEmail(	Config.get("main", "server"),
+	return (plaintext, htmltext)
+
+#Main function
+def main():
+	report = ExecuteConfigs("/var/lib/check.d/*.cfg")
+	if (len(report)>0):
+		print(TextColors.OKBLUE + "Sending e-mail..." + TextColors.ENDC)
+		Config = ConfigParser.ConfigParser()		
+		Config.read("emails.cfg")
+
+		(plaintext, htmltext) = FormatReport(reports)
+
+		SendEmail(Config.get("main", "server"),
 			Config.get("main", "port"),
 			Config.get("main", "login"),
 			Config.get("main", "password"),
 			Config.get("main", "source"),
 			Config.get("main", "target").split(","),
 			plaintext, htmltext)
-	print(bcolors.OKBLUE + "done" + bcolors.ENDC)
+		print(bcolors.OKBLUE + "done" + bcolors.ENDC)
+
+if  __name__ ==  "__main__" :    main()
