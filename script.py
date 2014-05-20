@@ -54,13 +54,13 @@ def SendEmail(server, port, login, password, source, receivers, text, html):
 		msg = MIMEMultipart('alternative')
 		msg['Subject'] = "Server errors"
 		msg['From'] = from_addr
-		msg['To'] = target
+		msg['To'] = target.strip()
 		part1 = MIMEText(text, 'plain')
 		part2 = MIMEText(html, 'html')
 		msg.attach(part1)
 		msg.attach(part2)
 		date = datetime.datetime.now().strftime( "%d/%m/%Y %H:%M" )
-		smtp.sendmail(source, target, msg.as_string())
+		smtp.sendmail(source, target.strip(), msg.as_string())
 	smtp.quit()
 
 Config = ConfigParser.ConfigParser()
