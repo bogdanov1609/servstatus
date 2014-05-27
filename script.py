@@ -1,4 +1,6 @@
-import sys, os, subprocess
+import sys
+import os
+import subprocess
 import glob
 import ConfigParser
 import datetime
@@ -128,4 +130,5 @@ def main():
 			plaintext, htmltext)
 		print(bcolors.OKBLUE + "done" + bcolors.ENDC)
 
-if  __name__ ==  "__main__" :    main()
+if  __name__ ==  "__main__" :    
+	main()
